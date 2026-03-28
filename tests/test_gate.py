@@ -1,11 +1,13 @@
+import time
+
 from adiuvare.core.gate import run_trackA
 from adiuvare.core.models import RequestContext
 from adiuvare.state.identity_store import IdentityStore
 
 
-def test_gate_passes_clean_identity():
-    ctx = RequestContext(
-        identity="u1",
+def make_ctx(identity: str = "u1") -> RequestContext:
+    return RequestContext(
+        identity=identity,
         payload=None,
         url="/",
         method="GET",
@@ -14,24 +16,37 @@ def test_gate_passes_clean_identity():
         endpoint="/",
     )
 
-    res = run_trackA(ctx, IdentityStore())
+
+def test_gate_passes_clean_identity():
+    res = run_trackA(make_ctx(), IdentityStore())
     assert res.passed is True
 
 
 def test_gate_blocks_blocked_identity():
     store = IdentityStore()
-    store.block("u1")
+    store.set_blocked("u1", 60)
 
-    ctx = RequestContext(
-        identity="u1",
-        payload=None,
-        url="/",
-        method="GET",
-        headers={},
-        ip="127.0.0.1",
-        endpoint="/",
-    )
-
-    res = run_trackA(ctx, store)
+    res = run_trackA(make_ctx(), store)
     assert res.passed is False
     assert res.status_code == 429
+
+
+def test_gate_rate_limit_sets_block():
+    store = IdentityStore()
+    ctx = make_ctx()
+    res = None
+
+    for _ in range(201):
+        res = run_trackA(ctx, store)
+
+    assert res is not None
+    assert res.passed is False
+    assert res.block_reason == "rate_limit_hit"
+    assert store.is_blocked("u1") is True
+
+
+def test_gate_block_expires():
+    store = IdentityStore(block_ttl=1)
+    store.set_blocked("u1", 0.01)
+    time.sleep(0.02)
+    assert store.is_blocked("u1") is False

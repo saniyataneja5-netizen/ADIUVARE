@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from ..core.models import RequestContext
 from ..state.identity_store import IdentityStore
 
-track_a_limit = "200/minute"
+trackA_limit = "200/minute"
 
 
 @dataclass
@@ -24,6 +24,7 @@ def run_trackA(ctx: RequestContext, id_store: IdentityStore) -> GateResult:
 
     seen = id_store.bump(ctx.identity)
     if seen > 200:
+        id_store.set_blocked(ctx.identity)
         return GateResult(
             passed=False,
             status_code=429,
@@ -31,4 +32,3 @@ def run_trackA(ctx: RequestContext, id_store: IdentityStore) -> GateResult:
         )
 
     return GateResult(passed=True)
-
