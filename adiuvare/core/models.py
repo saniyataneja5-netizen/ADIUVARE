@@ -3,6 +3,18 @@ from typing import Any, Literal
 
 
 @dataclass
+class ConfigSnapshot:
+    payload_weight: float
+    behavior_weight: float
+    identity_weight: float
+    flag_threshold: float
+    throttle_threshold: float
+    block_threshold: float
+    observe_only: bool = False
+    ai_mode: str = "off"
+
+
+@dataclass
 class RequestContext:
     identity: str
     payload: str | None
@@ -12,6 +24,7 @@ class RequestContext:
     ip: str
     endpoint: str
     sensitivity: Literal["public", "internal", "critical"] = "internal"
+    snapshot: ConfigSnapshot | None = None
 
 
 @dataclass
