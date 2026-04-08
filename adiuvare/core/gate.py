@@ -15,6 +15,21 @@ class GateResult:
 
 
 def run_trackA(ctx: RequestContext, id_store: IdentityStore) -> GateResult:
+    if ctx.endpoint.startswith("/.git") or ctx.endpoint.startswith("/_decoy"):
+        return GateResult(
+            passed=False,
+            status_code=403,
+            block_reason="decoy_path",
+        )
+
+    if ctx.endpoint.startswith("/admin") and ctx.method == "POST":
+        return GateResult(
+            passed=False,
+            hold=True,
+            status_code=202,
+            block_reason="trackA_hold",
+        )
+
     if id_store.is_blocked(ctx.identity):
         return GateResult(
             passed=False,

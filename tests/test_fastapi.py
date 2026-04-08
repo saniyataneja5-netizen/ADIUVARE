@@ -73,3 +73,21 @@ def test_fastapi_runs_trackB_in_background():
     assert seen == []
     time.sleep(0.3)
     assert seen == ["allow"]
+
+
+def test_fastapi_returns_hold_for_admin_post():
+    app = FastAPI()
+    guard = Guard()
+    guard.use(app, framework="fastapi")
+
+    @app.post("/admin/login")
+    async def login():
+        return {"ok": True}
+
+    client = TestClient(app)
+    res = client.post(
+        "/admin/login",
+        content="user=demo",
+        headers={"User-Agent": "Mozilla/5.0", "x-user-id": "u3"},
+    )
+    assert res.status_code == 202

@@ -50,3 +50,21 @@ def test_gate_block_expires():
     store.set_blocked("u1", 0.01)
     time.sleep(0.02)
     assert store.is_blocked("u1") is False
+
+
+def test_gate_blocks_crude_decoy_path():
+    ctx = make_ctx()
+    ctx.endpoint = "/.git/config"
+    res = run_trackA(ctx, IdentityStore())
+    assert res.passed is False
+    assert res.status_code == 403
+
+
+def test_gate_returns_hold_for_admin_post():
+    ctx = make_ctx()
+    ctx.endpoint = "/admin/login"
+    ctx.method = "POST"
+    res = run_trackA(ctx, IdentityStore())
+    assert res.passed is False
+    assert res.hold is True
+    assert res.status_code == 202
