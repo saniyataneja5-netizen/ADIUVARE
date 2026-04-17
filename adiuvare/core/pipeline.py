@@ -1,7 +1,7 @@
 from ..core.models import AdiuvareEvent, SignalResult
 from ..core.gate import run_trackA
+from ..core.policy_engine import reach_verdict
 from ..core.scorer import compute_score
-from ..core.verdict import compute_verdict
 from ..signals.ai import AISignal
 from ..signals.behavior import BehaviorSignal
 from ..signals.identity import IdentitySignal
@@ -55,9 +55,9 @@ class Pipeline:
         if ai_res is not None:
             ai_verdict = ai_res.detail.get("verdict", "")
             ai_conf = ai_res.detail.get("confidence", 0.0)
-        verdict = compute_verdict(
+        decision = reach_verdict(
             score,
-            ctx.snapshot,
+            snap=ctx.snapshot,
             identity_risk=identity_risk,
             payload_risk=payload_risk,
             ai_verdict=ai_verdict,
@@ -67,13 +67,16 @@ class Pipeline:
         detail = {"signal_reasons": {name: res.reason for name, res in sig_res.items()}}
         if ai_res is not None:
             detail["ai"] = ai_res.detail
+        if decision.logged != decision.verdict:
+            detail["logged_verdict"] = decision.logged
         self._id_store.apply_score(ctx.identity, score)
         event = AdiuvareEvent(
             identity=ctx.identity,
             endpoint=ctx.endpoint,
             score=score,
-            verdict=verdict,
+            verdict=decision.verdict,
             breakdown=breakdown,
             detail=detail,
+            logged_verdict=decision.logged,
         )
         return event

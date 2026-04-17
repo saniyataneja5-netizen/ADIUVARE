@@ -43,3 +43,10 @@ class AdiuvareEvent:
     verdict: str
     breakdown: dict[str, float]
     detail: dict[str, Any] = field(default_factory=dict)
+    logged_verdict: str | None = None
+
+
+@dataclass
+class PolicyDecision:
+    verdict: str
+    logged: str

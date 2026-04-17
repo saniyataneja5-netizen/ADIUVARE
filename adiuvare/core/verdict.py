@@ -1,3 +1,6 @@
+from .policy_engine import reach_verdict
+
+
 def compute_verdict(
     score: float,
     snap=None,
@@ -7,29 +10,12 @@ def compute_verdict(
     ai_conf: float = 0.0,
     ai_mode: str = "off",
 ) -> str:
-    if identity_risk >= 0.60:
-        score = min(1.0, score + 0.10)
-
-    block = snap.block_threshold if snap else 0.80
-    throttle = snap.throttle_threshold if snap else 0.55
-    flag = snap.flag_threshold if snap else 0.25
-
-    if payload_risk >= 0.85 and score < throttle:
-        return "throttle"
-
-    if ai_mode == "critical" and ai_verdict == "malicious" and ai_conf >= 0.60:
-        return "block"
-
-    if ai_mode in {"assist", "critical"} and ai_verdict == "suspicious" and score >= flag:
-        return "throttle"
-
-    if score >= block:
-        return "block"
-
-    if score >= throttle:
-        return "throttle"
-
-    if score >= flag:
-        return "flag"
-
-    return "allow"
+    return reach_verdict(
+        score,
+        snap=snap,
+        payload_risk=payload_risk,
+        identity_risk=identity_risk,
+        ai_verdict=ai_verdict,
+        ai_conf=ai_conf,
+        ai_mode=ai_mode,
+    ).verdict
