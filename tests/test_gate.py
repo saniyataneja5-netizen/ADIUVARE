@@ -1,8 +1,9 @@
 import time
 
-from adiuvare.core.gate import run_trackA
+from adiuvare.core.gate import configure_trackA, run_trackA
 from adiuvare.core.models import RequestContext
 from adiuvare.state.identity_store import IdentityStore
+from adiuvare.state.whitelist import WhitelistStore
 
 
 def make_ctx(identity: str = "u1") -> RequestContext:
@@ -68,3 +69,24 @@ def test_gate_returns_hold_for_admin_post():
     assert res.passed is False
     assert res.hold is True
     assert res.status_code == 202
+
+
+def test_gate_whitelist_skips_blocked_identity():
+    wl = WhitelistStore()
+    wl.add("u1")
+    configure_trackA(wl=wl, hard_sigs=[])
+    store = IdentityStore()
+    store.set_blocked("u1", 60)
+    res = run_trackA(make_ctx(), store)
+    assert res.passed is True
+    configure_trackA(wl=None, hard_sigs=[])
+
+
+def test_gate_blocks_banned_ip():
+    wl = WhitelistStore()
+    wl.ban_ip("127.0.0.1")
+    configure_trackA(wl=wl, hard_sigs=[])
+    res = run_trackA(make_ctx(), IdentityStore())
+    assert res.passed is False
+    assert res.block_reason == "banned_ip"
+    configure_trackA(wl=None, hard_sigs=[])

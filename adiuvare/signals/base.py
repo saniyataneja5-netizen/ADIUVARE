@@ -15,6 +15,7 @@ class SoftSignal(ABC):
 
 class HardSignal(ABC):
     name: str = "unnamed"
+    action: str = "block"
 
     @abstractmethod
     def check(self, ctx: RequestContext) -> bool:
@@ -30,4 +31,3 @@ def validate_hard_signal(sig: HardSignal) -> None:
         raise AdiuvareStartupError(
             f"{type(sig).__name__}.check() must stay sync in track a"
         )
-

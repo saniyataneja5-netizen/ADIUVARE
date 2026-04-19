@@ -4,6 +4,7 @@ from functools import wraps
 
 from .config import build_snapshot, load_config
 from .core.events import EventHooks
+from .core.gate import configure_trackA, run_trackA
 from .core.models import RequestContext
 from .core.pipeline import Pipeline
 from .policies import BUILTIN_POLICIES
@@ -12,7 +13,9 @@ from .signals.context import ContextSignal
 from .signals.identity import IdentitySignal
 from .signals.ip_rep import IPRepSignal
 from .signals.payload import PayloadSignal
+from .state.event_stream import UnixSocketEventStream
 from .state.identity_store import IdentityStore
+from .state.whitelist import WhitelistStore
 
 
 class Guard:
@@ -21,10 +24,13 @@ class Guard:
         preset: str = "balanced",
         config_path: str | Path | None = None,
         soft_signals: list | None = None,
+        hard_signals: list | None = None,
     ) -> None:
         self._cfg = load_config(config_path, preset=preset)
         self._cfg_snap = build_snapshot(self._cfg)
         self._id_store = IdentityStore()
+        self._wl = WhitelistStore()
+        self._hard_sigs = list(hard_signals or [])
         sigs = soft_signals or [
             PayloadSignal(),
             BehaviorSignal(self._id_store),
@@ -34,8 +40,10 @@ class Guard:
         ]
         self._pipeline = Pipeline(self._id_store, soft_signals=sigs)
         self._hooks = EventHooks()
+        self._stream = UnixSocketEventStream()
         self.policies = dict(BUILTIN_POLICIES)
         self._route_cfg: dict[str, Any] = {}
+        configure_trackA(wl=self._wl, hard_sigs=self._hard_sigs)
 
     @property
     def hooks(self) -> EventHooks:
@@ -55,11 +63,13 @@ class Guard:
         config_path: str | Path,
         preset: str = "balanced",
         soft_signals: list | None = None,
+        hard_signals: list | None = None,
     ):
         return cls(
             preset=preset,
             config_path=config_path,
             soft_signals=soft_signals,
+            hard_signals=hard_signals,
         )
 
     @classmethod
@@ -69,11 +79,13 @@ class Guard:
         preset: str = "balanced",
         config_path: str | Path | None = None,
         soft_signals: list | None = None,
+        hard_signals: list | None = None,
     ):
         guard = cls(
             preset=preset,
             config_path=config_path,
             soft_signals=soft_signals,
+            hard_signals=hard_signals,
         )
         if hasattr(app, "wsgi_app"):
             guard.use(app, framework="flask")
@@ -85,17 +97,28 @@ class Guard:
         if ctx.snapshot is None:
             ctx.snapshot = self._cfg_snap
 
-        gate, event = await self._pipeline.process(ctx)
+        gate = run_trackA(ctx, self._id_store)
         if not gate.passed:
             self._hooks.emit_block(gate)
             return gate, None
 
+        event = await self._pipeline.trackB(ctx)
+        if event is not None:
+            await self._stream.emit(event)
         if event is not None:
             self._hooks.emit_event(event)
         return gate, event
 
     def handle(self, ctx: RequestContext):
         return self.inspect(ctx)
+
+    @property
+    def event_stream(self):
+        return self._stream
+
+    @property
+    def whitelist(self):
+        return self._wl
 
     def policy(self, name: str, **overrides: Any):
         pol = self.policies.get(name)
