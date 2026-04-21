@@ -49,6 +49,8 @@ class Guard:
         self._stream.set_command_handler(self.handlestreamcmd)
         self.policies = dict(BUILTIN_POLICIES)
         self._route_cfg: dict[str, Any] = {}
+        self._last_identity: str | None = None
+        self._last_sink: dict[str, Any] | None = None
         configure_trackA(wl=self._wl, hard_sigs=self._hard_sigs)
 
     @property
@@ -103,6 +105,7 @@ class Guard:
         if ctx.snapshot is None:
             ctx.snapshot = self._cfg_snap
 
+        self._last_identity = ctx.identity
         gate = run_trackA(ctx, self._id_store)
         if not gate.passed:
             self._hooks.emit_block(gate)
@@ -126,6 +129,28 @@ class Guard:
     @property
     def whitelist(self):
         return self._wl
+
+    def record_sink_detection(
+        self,
+        *,
+        statement: str,
+        normalised: str,
+        confidence: float,
+        fingerprint: str = "",
+    ) -> None:
+        self._last_sink = {
+            "statement": statement,
+            "normalised": normalised,
+            "confidence": confidence,
+            "fingerprint": fingerprint,
+        }
+        self._audit.write_patch("sink_hit", self._last_sink)
+
+    def elevate_identity_from_sink(self, identity: str | None = None) -> None:
+        who = identity or self._last_identity
+        if not who:
+            return
+        self._id_store.apply_score(who, 0.85)
 
     def checkpoint(self) -> None:
         checkpoint_state(self._state_DBpath, self._id_store)
@@ -235,6 +260,12 @@ class Guard:
             from .integrations.flask import AdiuvareMiddleware
 
             app.wsgi_app = AdiuvareMiddleware(app.wsgi_app, guard=self)
+            return
+
+        if framework == "django":
+            from .integrations.django import AdiuvareMiddleware
+
+            app._adiuvare_mw = AdiuvareMiddleware(app, guard=self)
             return
 
         raise ValueError(f"unsupported framework: {framework}")
