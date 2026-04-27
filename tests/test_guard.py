@@ -45,3 +45,25 @@ runtime:
             await guard.shutdown()
 
     asyncio.run(run())
+
+
+def test_guard_check_uses_route_cfg():
+    guard = Guard()
+
+    async def run():
+        gate, event = await guard.check(
+            "u1",
+            payload="select * from users where id = '' or 1=1",
+            context={"path": "/sdk", "route_cfg": {"trackB": False, "sensitivity": "critical"}},
+        )
+        assert gate.passed is True
+        assert event is None
+
+    asyncio.run(run())
+
+
+def test_guard_check_sync_returns_event():
+    guard = Guard()
+    gate, event = guard.check_sync("u2", payload="hello")
+    assert gate.passed is True
+    assert event is not None

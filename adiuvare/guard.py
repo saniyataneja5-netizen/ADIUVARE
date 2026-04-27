@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from functools import wraps
@@ -108,7 +109,7 @@ class Guard:
             guard.use(app, framework="fastapi")
         return guard
 
-    async def inspect(self, ctx: RequestContext):
+    async def inspect(self, ctx: RequestContext, *, trackB: bool = True):
         if ctx.snapshot is None:
             ctx.snapshot = self._cfg_snap
 
@@ -116,6 +117,9 @@ class Guard:
         gate = run_trackA(ctx, self._id_store)
         if not gate.passed:
             self._hooks.emit_block(gate)
+            return gate, None
+
+        if not trackB:
             return gate, None
 
         event = await self._pipeline.trackB(ctx)
@@ -184,15 +188,60 @@ class Guard:
         await self._stream.stop()
         self._bg_started = False
 
+    async def check(
+        self,
+        identity: str,
+        payload: dict | str | None = None,
+        context: dict[str, Any] | None = None,
+    ):
+        ctxdata = context or {}
+        route_cfg = dict(ctxdata.get("route_cfg") or {})
+        if "path" in ctxdata and not route_cfg:
+            route_cfg = self.routecfg(str(ctxdata["path"]))
+
+        if isinstance(payload, dict):
+            import json
+
+            payload_text = json.dumps(payload)
+        else:
+            payload_text = payload
+
+        endpoint = str(ctxdata.get("endpoint") or ctxdata.get("path") or "/sdk")
+        ctx = RequestContext(
+            identity=identity,
+            payload=payload_text,
+            url=str(ctxdata.get("url") or endpoint),
+            method=str(ctxdata.get("method") or "INTERNAL"),
+            headers=dict(ctxdata.get("headers") or {}),
+            ip=str(ctxdata.get("ip") or "127.0.0.1"),
+            endpoint=endpoint,
+            sensitivity=str(ctxdata.get("sensitivity") or route_cfg.get("sensitivity") or "internal"),
+            snapshot=self.routesnap(route_cfg),
+        )
+        return await self.inspect(ctx, trackB=bool(route_cfg.get("trackB", True)))
+
+    def check_sync(
+        self,
+        identity: str,
+        payload: dict | str | None = None,
+        context: dict[str, Any] | None = None,
+    ):
+        return asyncio.run(self.check(identity, payload=payload, context=context))
+
     def runtimesnapshot(self) -> dict[str, Any]:
         recent = self._stream.recent() if hasattr(self._stream, "recent") else []
         return {
             "ai_mode": self._cfg_snap.ai_mode,
+            "ai_model": self._cfg.ai.model,
             "observe_only": self._cfg_snap.observe_only,
+            "backend": self._cfg.runtime.backend,
             "hard_sigs": [sig.name for sig in self._hard_sigs],
             "whitelist_size": len(self._wl._ids),
             "recent_events": len(recent),
             "state_db": str(self._state_DBpath),
+            "audit_db": self._cfg.runtime.audit_db_path,
+            "route_overrides": len(self._route_cfg),
+            "bg_started": self._bg_started,
         }
 
     async def handlestreamcmd(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -283,14 +332,14 @@ class Guard:
         if framework == "fastapi":
             from .integrations.fastapi import AdiuvareMiddleware
 
-            app.add_middleware(AdiuvareMiddleware, guard=self)
+            app.add_middleware(AdiuvareMiddleware, guard=self, route_source=app)
             return
 
         if framework == "flask":
             self._use_flask_store()
             from .integrations.flask import AdiuvareMiddleware
 
-            app.wsgi_app = AdiuvareMiddleware(app.wsgi_app, guard=self)
+            app.wsgi_app = AdiuvareMiddleware(app.wsgi_app, guard=self, flask_app=app)
             return
 
         if framework == "django":
@@ -322,3 +371,38 @@ class Guard:
         for sig in self._pipeline._soft_signals:
             if hasattr(sig, "_id_store"):
                 sig._id_store = store
+
+    def routecfg(self, path: str, endpoint=None) -> dict[str, Any]:
+        cfg = {}
+        saved = self._route_cfg.get(path)
+        if isinstance(saved, dict):
+            cfg.update(self._expand_routecfg(saved))
+
+        if endpoint is not None:
+            if getattr(endpoint, "_adiuvare_exempt", False):
+                return {"exempt": True}
+            live = getattr(endpoint, "_adiuvare_cfg", None)
+            if isinstance(live, dict):
+                cfg.update(live)
+
+        return cfg
+
+    def routesnap(self, route_cfg: dict[str, Any] | None):
+        if not route_cfg:
+            return self._cfg_snap
+
+        ai_mode = route_cfg.get("ai_mode")
+        if not ai_mode or ai_mode == self._cfg_snap.ai_mode:
+            return self._cfg_snap
+        return replace(self._cfg_snap, ai_mode=str(ai_mode))
+
+    def _expand_routecfg(self, saved: dict[str, Any]) -> dict[str, Any]:
+        if "policy" not in saved:
+            return dict(saved)
+
+        pol = self.policies.get(str(saved["policy"]))
+        if pol is None:
+            return dict(saved)
+
+        overrides = {key: val for key, val in saved.items() if key != "policy"}
+        return pol.with_overrides(**overrides).__dict__

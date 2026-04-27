@@ -117,3 +117,23 @@ def test_flask_body_sqli_does_not_stay_open():
         headers={"User-Agent": "curl/8.0", "x-user-id": "u5"},
     )
     assert res.status_code in {403, 429}
+
+
+def test_flask_route_cfg_can_skip_trackB():
+    app = Flask(__name__)
+    guard = Guard()
+    guard.configure_routes({"/billing": {"trackB": False}})
+    guard.use(app, framework="flask")
+
+    @app.post("/billing")
+    def billing():
+        return jsonify(ok=True)
+
+    client = app.test_client()
+    res = client.post(
+        "/billing",
+        data=b"select * from users where id = '' or 1=1",
+        content_type="text/plain",
+        headers={"User-Agent": "curl/8.0", "x-user-id": "u6"},
+    )
+    assert res.status_code == 200

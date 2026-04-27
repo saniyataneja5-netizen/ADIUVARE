@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from adiuvare import Guard
 from adiuvare.core.models import AdiuvareEvent, RequestContext, SignalResult
+from adiuvare.signals.ai import AISignal
 from adiuvare.signals.base import SoftSignal
 
 
@@ -206,3 +207,32 @@ def test_guard_auto_attaches_fastapi():
     res = client.get("/ping", headers={"User-Agent": "Mozilla/5.0", "x-user-id": "u4"})
     assert res.status_code == 200
     assert guard.pipeline is not None
+
+
+def test_fastapi_route_ai_mode_override_is_used():
+    app = FastAPI()
+    guard = Guard()
+
+    async def fake_review(_ctx, _score):
+        return SignalResult(
+            score=0.0,
+            reason="ai_malicious",
+            detail={"verdict": "malicious", "confidence": 0.95},
+        )
+
+    guard._pipeline._ai_sig = AISignal(caller=lambda *_: None)
+    guard._pipeline._ai_sig.review = fake_review
+    guard.use(app, framework="fastapi")
+
+    @app.post("/review")
+    @guard.protect(ai_mode="critical")
+    async def review():
+        return {"ok": True}
+
+    client = TestClient(app)
+    res = client.post(
+        "/review",
+        content="hello there",
+        headers={"User-Agent": "Mozilla/5.0", "x-user-id": "u9"},
+    )
+    assert res.status_code == 403

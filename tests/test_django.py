@@ -65,3 +65,17 @@ def test_django_body_sqli_does_not_stay_open():
     )
     res = mw(req)
     assert res.status_code in {403, 429}
+
+
+def test_django_route_cfg_can_skip_trackB():
+    guard = Guard()
+    guard.configure_routes({"/billing": {"trackB": False}})
+    mw = AdiuvareMiddleware(lambda req: DummyRes(200), guard)
+    req = DummyReq(
+        "/billing",
+        method="POST",
+        body=b"select * from users where id = '' or 1=1",
+        headers={"User-Agent": "curl/8.0", "x-user-id": "u4"},
+    )
+    res = mw(req)
+    assert res.status_code == 200
