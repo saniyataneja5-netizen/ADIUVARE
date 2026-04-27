@@ -1,4 +1,5 @@
 import sqlite3
+import asyncio
 from pathlib import Path
 
 from .identity_store import IdentityStore
@@ -12,7 +13,7 @@ def init_state_db(db_path: str | Path) -> None:
 
 def save_identity_state(db_path: str | Path, id_store: IdentityStore) -> None:
     with sqlite3.connect(db_path) as conn:
-        for identity, win in id_store._windows.items():
+        for identity, win in id_store.items():
             conn.execute(
                 """
                 insert or replace into identity_state (
@@ -28,6 +29,10 @@ def save_identity_state(db_path: str | Path, id_store: IdentityStore) -> None:
 
 
 def load_identity_state(db_path: str | Path, id_store: IdentityStore) -> None:
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return
+
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute(
             "select identity, seen, score_ewma, blocked_until from identity_state"
@@ -44,3 +49,13 @@ def load_identity_state(db_path: str | Path, id_store: IdentityStore) -> None:
 def checkpoint_state(db_path: str | Path, id_store: IdentityStore) -> None:
     init_state_db(db_path)
     save_identity_state(db_path, id_store)
+
+
+async def start_checkpoint_loop(
+    db_path: str | Path,
+    id_store: IdentityStore,
+    interval_secs: int = 60,
+) -> None:
+    while True:
+        await asyncio.sleep(interval_secs)
+        checkpoint_state(db_path, id_store)

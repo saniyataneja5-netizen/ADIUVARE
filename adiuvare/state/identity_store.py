@@ -30,6 +30,10 @@ class IdentityStore:
         with self._lock:
             self._windows[identity] = win
 
+    def items(self) -> list[tuple[str, IdentityWindow]]:
+        with self._lock:
+            return list(self._windows.items())
+
     def set_blocked(self, identity: str, seconds: int | float | None = None) -> None:
         win = self.get(identity)
         win.blocked_until = time.time() + (seconds or self._block_ttl)
@@ -73,3 +77,37 @@ class IdentityStore:
             win.score_ewma = (win.score_ewma * (1 - alpha)) + (score * alpha)
         self.update(identity, win)
         return win
+
+
+class ThreadSafeIdentityStore(IdentityStore):
+    def __init__(self, ttl: int = 300, block_ttl: int = 60) -> None:
+        super().__init__(ttl=ttl, block_ttl=block_ttl)
+        self._thread = threading.RLock()
+
+    def get(self, identity: str) -> IdentityWindow:
+        with self._thread:
+            return super().get(identity)
+
+    def update(self, identity: str, win: IdentityWindow) -> None:
+        with self._thread:
+            super().update(identity, win)
+
+    def set_blocked(self, identity: str, seconds: int | float | None = None) -> None:
+        with self._thread:
+            super().set_blocked(identity, seconds)
+
+    def clear_block(self, identity: str) -> None:
+        with self._thread:
+            super().clear_block(identity)
+
+    def is_blocked(self, identity: str) -> bool:
+        with self._thread:
+            return super().is_blocked(identity)
+
+    def bump(self, identity: str) -> int:
+        with self._thread:
+            return super().bump(identity)
+
+    def apply_score(self, identity: str, score: float, alpha: float = 0.35) -> IdentityWindow:
+        with self._thread:
+            return super().apply_score(identity, score, alpha)

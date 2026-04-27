@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 from pathlib import Path
 from typing import Any
 from functools import wraps
@@ -14,9 +16,9 @@ from .signals.identity import IdentitySignal
 from .signals.ip_rep import IPRepSignal
 from .signals.payload import PayloadSignal
 from .state.audit_log import AuditLog
-from .state.event_stream import UnixSocketEventStream
-from .state.identity_store import IdentityStore
-from .state.persistence import checkpoint_state
+from .state.event_stream import RedisEventStream, UnixSocketEventStream
+from .state.identity_store import IdentityStore, ThreadSafeIdentityStore
+from .state.persistence import checkpoint_state, load_identity_state, start_checkpoint_loop
 from .state.whitelist import WhitelistStore
 
 
@@ -27,10 +29,11 @@ class Guard:
         config_path: str | Path | None = None,
         soft_signals: list | None = None,
         hard_signals: list | None = None,
+        flaskmode: bool = False,
     ) -> None:
         self._cfg = load_config(config_path, preset=preset)
         self._cfg_snap = build_snapshot(self._cfg)
-        self._id_store = IdentityStore()
+        self._id_store = ThreadSafeIdentityStore() if flaskmode else IdentityStore()
         self._wl = WhitelistStore()
         self._hard_sigs = list(hard_signals or [])
         Path(".adiuvare").mkdir(exist_ok=True)
@@ -45,12 +48,15 @@ class Guard:
         ]
         self._pipeline = Pipeline(self._id_store, soft_signals=sigs)
         self._hooks = EventHooks()
-        self._stream = UnixSocketEventStream()
-        self._stream.set_command_handler(self.handlestreamcmd)
+        self._stream = self._mkstream()
+        if hasattr(self._stream, "set_command_handler"):
+            self._stream.set_command_handler(self.handlestreamcmd)
         self.policies = dict(BUILTIN_POLICIES)
         self._route_cfg: dict[str, Any] = {}
         self._last_identity: str | None = None
         self._last_sink: dict[str, Any] | None = None
+        self._bg_task: asyncio.Task | None = None
+        self._bg_started = False
         configure_trackA(wl=self._wl, hard_sigs=self._hard_sigs)
 
     @property
@@ -94,6 +100,7 @@ class Guard:
             config_path=config_path,
             soft_signals=soft_signals,
             hard_signals=hard_signals,
+            flaskmode=hasattr(app, "wsgi_app"),
         )
         if hasattr(app, "wsgi_app"):
             guard.use(app, framework="flask")
@@ -155,13 +162,36 @@ class Guard:
     def checkpoint(self) -> None:
         checkpoint_state(self._state_DBpath, self._id_store)
 
+    async def startbgtasks(self) -> None:
+        if self._bg_started:
+            return
+
+        load_identity_state(self._state_DBpath, self._id_store)
+        await self._stream.start()
+        self._bg_task = asyncio.create_task(
+            start_checkpoint_loop(self._state_DBpath, self._id_store)
+        )
+        self._bg_started = True
+
+    async def shutdown(self) -> None:
+        if self._bg_task is not None:
+            self._bg_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._bg_task
+            self._bg_task = None
+
+        self.checkpoint()
+        await self._stream.stop()
+        self._bg_started = False
+
     def runtimesnapshot(self) -> dict[str, Any]:
+        recent = self._stream.recent() if hasattr(self._stream, "recent") else []
         return {
             "ai_mode": self._cfg_snap.ai_mode,
             "observe_only": self._cfg_snap.observe_only,
             "hard_sigs": [sig.name for sig in self._hard_sigs],
             "whitelist_size": len(self._wl._ids),
-            "recent_events": len(self._stream.recent()),
+            "recent_events": len(recent),
             "state_db": str(self._state_DBpath),
         }
 
@@ -257,6 +287,7 @@ class Guard:
             return
 
         if framework == "flask":
+            self._use_flask_store()
             from .integrations.flask import AdiuvareMiddleware
 
             app.wsgi_app = AdiuvareMiddleware(app.wsgi_app, guard=self)
@@ -269,3 +300,25 @@ class Guard:
             return
 
         raise ValueError(f"unsupported framework: {framework}")
+
+    def _mkstream(self):
+        if self._cfg.runtime.backend == "redis" and self._cfg.runtime.redis_url:
+            return RedisEventStream(
+                project="adiuvare",
+                redis_url=self._cfg.runtime.redis_url,
+            )
+        return UnixSocketEventStream()
+
+    def _use_flask_store(self) -> None:
+        if isinstance(self._id_store, ThreadSafeIdentityStore):
+            return
+
+        store = ThreadSafeIdentityStore()
+        for identity, win in self._id_store.items():
+            store.update(identity, win)
+
+        self._id_store = store
+        self._pipeline._id_store = store
+        for sig in self._pipeline._soft_signals:
+            if hasattr(sig, "_id_store"):
+                sig._id_store = store

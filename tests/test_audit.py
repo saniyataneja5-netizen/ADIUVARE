@@ -125,3 +125,29 @@ def test_guard_stream_command_path_updates_runtime_state(tmp_path):
     )
     assert patched["ai_mode"] == "assist"
     assert patched["observe_only"] is True
+
+
+def test_checkpoint_loop_picks_up_new_identity(tmp_path):
+    db_path = tmp_path / "state.db"
+    store = IdentityStore()
+    store.bump("u9")
+
+    async def run():
+        from adiuvare.state.persistence import start_checkpoint_loop
+
+        task = asyncio.create_task(start_checkpoint_loop(db_path, store, interval_secs=0.01))
+        try:
+            await asyncio.sleep(0.03)
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    import contextlib
+
+    asyncio.run(run())
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("select identity, seen from identity_state").fetchone()
+
+    assert row == ("u9", 1)

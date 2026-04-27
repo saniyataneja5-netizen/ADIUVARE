@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 
 from adiuvare import Guard
+from adiuvare.state.identity_store import ThreadSafeIdentityStore
 
 
 def test_flask_middleware_allows_clean_request():
@@ -72,6 +73,13 @@ def test_flask_blocks_banned_forwarded_ip():
         },
     )
     assert res.status_code == 403
+
+
+def test_flask_use_swaps_in_threadsafe_store():
+    app = Flask(__name__)
+    guard = Guard()
+    guard.use(app, framework="flask")
+    assert isinstance(guard._id_store, ThreadSafeIdentityStore)
 
 
 def test_flask_query_sqli_does_not_stay_open():
