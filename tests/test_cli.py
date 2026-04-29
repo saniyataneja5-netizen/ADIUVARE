@@ -1,8 +1,11 @@
+import sys
+import time
+from types import SimpleNamespace
 from pathlib import Path
 
 import yaml
 
-from cli import _plain_terminal_wizard, _run_config_set, _run_init, _run_logs, _run_status
+from cli import _find_socket, _open_tui, _plain_terminal_wizard, _run_config_set, _run_init, _run_logs, _run_status
 from adiuvare.core.models import AdiuvareEvent
 from adiuvare.state.audit_log import AuditLog
 
@@ -76,6 +79,7 @@ def test_run_status_prints_framework_and_instances(tmp_path, monkeypatch, capsys
     out = capsys.readouterr().out
     assert "framework: fastapi" in out
     assert "instances: single" in out
+    assert "runtime: offline" in out
 
 
 def test_run_init_keeps_existing_file_when_user_declines(tmp_path, monkeypatch, capsys):
@@ -85,3 +89,60 @@ def test_run_init_keeps_existing_file_when_user_declines(tmp_path, monkeypatch, 
     _run_init(cfg, no_tui=True)
     assert cfg.read_text(encoding="utf-8") == "thresholds:\n  block: 0.8\n"
     assert "aborted" in capsys.readouterr().out
+
+
+def test_find_socket_picks_newest_marker(tmp_path, monkeypatch):
+    older = tmp_path / "adiuvare-old.sock"
+    older.write_text("{}", encoding="utf-8")
+    time.sleep(0.01)
+    newer = tmp_path / "adiuvare-live.sock"
+    newer.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("cli.tempfile.gettempdir", lambda: str(tmp_path))
+    assert _find_socket() == str(newer)
+
+
+def test_run_status_uses_runtime_snapshot_when_socket_is_live(tmp_path, monkeypatch, capsys):
+    cfg = tmp_path / "adiuvare.yaml"
+    cfg.write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {"audit_db_path": str(tmp_path / "audit.db"), "state_db_path": str(tmp_path / "state.db")},
+                "meta": {"framework": "fastapi", "instances": "single"},
+                "ai": {"mode": "assist"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "cli._runtime_link",
+        lambda: ("demo.sock", {"backend": "sqlite", "observe_only": False, "ai_mode": "assist", "recent_events": 7}),
+    )
+    _run_status()
+    out = capsys.readouterr().out
+    assert "runtime: connected" in out
+    assert "socket: demo.sock" in out
+    assert "recent_events: 7" in out
+
+
+def test_open_tui_passes_live_socket_to_app(tmp_path, monkeypatch):
+    cfg = tmp_path / "adiuvare.yaml"
+    cfg.write_text("runtime:\n  audit_db_path: .adiuvare/audit.db\n  state_db_path: .adiuvare/state.db\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("cli._runtime_link", lambda: ("demo.sock", {"backend": "sqlite"}))
+    seen = {}
+
+    class FakeApp:
+        def __init__(self, socket_path=None, config_path=None):
+            seen["socket_path"] = socket_path
+            seen["config_path"] = config_path
+
+        def run(self):
+            seen["ran"] = True
+
+    monkeypatch.setitem(sys.modules, "adiuvare.tui.app", SimpleNamespace(AdiuvareApp=FakeApp))
+    _open_tui()
+    assert seen["socket_path"] == "demo.sock"
+    assert seen["config_path"] == str(cfg)
+    assert seen["ran"] is True

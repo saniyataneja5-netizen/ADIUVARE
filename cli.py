@@ -1,6 +1,8 @@
 import argparse
+import asyncio
 import json
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -10,6 +12,7 @@ import yaml
 from adiuvare.config.editor import merge_sections, starter_config
 from adiuvare.config.loader import load_config
 from adiuvare.state.audit_log import AuditLog
+from adiuvare.state.event_stream import EventStreamClient
 
 
 def main() -> None:
@@ -60,7 +63,8 @@ def _open_tui() -> None:
         print("tui deps are missing, try pip install -e .[tui]")
         raise SystemExit(1)
 
-    AdiuvareApp(config_path=str(cfg)).run()
+    socket_path, _snap = _runtime_link()
+    AdiuvareApp(socket_path=socket_path, config_path=str(cfg)).run()
 
 
 def _run_init(path: Path, no_tui: bool) -> None:
@@ -108,7 +112,20 @@ def _run_status() -> None:
         print("missing adiuvare.yaml")
         return
     loaded = load_config(cfg)
+    socket_path, snap = _runtime_link()
     print(f"config: {cfg}")
+    if socket_path and snap:
+        print("runtime: connected")
+        print(f"socket: {socket_path}")
+        print(f"backend: {snap.get('backend', loaded.runtime.backend)}")
+        print(f"framework: {loaded.meta.framework}")
+        print(f"instances: {loaded.meta.instances}")
+        print(f"observe_only: {snap.get('observe_only', loaded.runtime.observe_only)}")
+        print(f"ai_mode: {snap.get('ai_mode', loaded.ai.mode)}")
+        print(f"recent_events: {snap.get('recent_events', 0)}")
+        return
+
+    print("runtime: offline")
     print(f"framework: {loaded.meta.framework}")
     print(f"instances: {loaded.meta.instances}")
     print(f"observe_only: {loaded.runtime.observe_only}")
@@ -203,6 +220,38 @@ def _coerce(value: str) -> Any:
 def _ask(prompt: str, options: list[str], default: str) -> str:
     answer = input(f"{prompt} [{' / '.join(options)}] ({default}): ").strip().lower()
     return answer if answer in options else default
+
+
+def _runtime_link() -> tuple[str | None, dict[str, Any] | None]:
+    socket_path = _find_socket()
+    if not socket_path:
+        return None, None
+
+    snap = _runtime_snap(socket_path)
+    if snap is None:
+        return None, None
+    return socket_path, snap
+
+
+def _find_socket() -> str | None:
+    base = Path(tempfile.gettempdir())
+    matches = sorted(
+        base.glob("adiuvare*.sock"),
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+    )
+    return str(matches[0]) if matches else None
+
+
+def _runtime_snap(socket_path: str) -> dict[str, Any] | None:
+    async def call() -> dict[str, Any]:
+        client = EventStreamClient(socket_path)
+        return await client.command("get_runtime_snapshot", {})
+
+    try:
+        return asyncio.run(call())
+    except Exception:
+        return None
 
 
 if __name__ == "__main__":
