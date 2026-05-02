@@ -18,6 +18,28 @@ runtime:
     assert isinstance(guard.event_stream, RedisEventStream)
 
 
+def test_guard_builds_ai_signal_from_config(tmp_path):
+    cfg_path = tmp_path / "adiuvare.yaml"
+    cfg_path.write_text(
+        """
+ai:
+  enabled: true
+  mode: assist
+  model: mistral
+  base_url: http://127.0.0.1:9000
+  api_key: demo-key
+  timeout_secs: 9
+"""
+    )
+
+    guard = Guard.from_config(cfg_path)
+    ai_sig = guard.pipeline._ai_sig
+    assert ai_sig._model == "mistral"
+    assert ai_sig._url == "http://127.0.0.1:9000/api/generate"
+    assert ai_sig._api_key == "demo-key"
+    assert ai_sig._timeout == 9.0
+
+
 def test_guard_startbgtasks_restores_state(tmp_path):
     cfg_path = tmp_path / "adiuvare.yaml"
     state_path = tmp_path / "state.db"

@@ -31,6 +31,8 @@ def test_adiuvare_config_builds_with_runtime_and_ai():
     assert cfg.runtime.audit_db_path == ".adiuvare/audit.db"
     assert cfg.ai.mode == "off"
     assert cfg.ai.base_url == "http://127.0.0.1:11434"
+    assert cfg.ai.api_key is None
+    assert cfg.ai.timeout_secs == 5.0
     assert cfg.meta.framework == "fastapi"
 
 
@@ -122,12 +124,18 @@ def test_load_config_applies_env_overrides(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("adiuvare.config.loader.Path.home", lambda: home)
     monkeypatch.setenv("ADIUVARE_AI_MODE", "assist")
-    monkeypatch.setenv("ADIUVARE_OLLAMA_URL", "http://127.0.0.1:9000")
+    monkeypatch.setenv("ADIUVARE_AI_BASE_URL", "http://127.0.0.1:9000")
+    monkeypatch.setenv("ADIUVARE_AI_MODEL", "mistral")
+    monkeypatch.setenv("ADIUVARE_AI_API_KEY", "demo-key")
+    monkeypatch.setenv("ADIUVARE_AI_TIMEOUT_SECS", "12")
     monkeypatch.setenv("ADIUVARE_REDIS_URL", "redis://127.0.0.1:6379/0")
     monkeypatch.setenv("ADIUVARE_BLOCK_THRESHOLD", "0.72")
     cfg = load_config()
     assert cfg.ai.mode == "assist"
+    assert cfg.ai.model == "mistral"
     assert cfg.ai.base_url == "http://127.0.0.1:9000"
+    assert cfg.ai.api_key == "demo-key"
+    assert cfg.ai.timeout_secs == 12.0
     assert cfg.runtime.redis_url == "redis://127.0.0.1:6379/0"
     assert cfg.thresholds.block == 0.72
 

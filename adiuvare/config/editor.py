@@ -37,12 +37,16 @@ def starter_config(
     strictness: str,
     mode: str,
     ai_mode: str,
+    ai_model: str = "llama3",
+    ai_api_key: str | None = None,
 ) -> dict[str, Any]:
     preset = "strict" if strictness == "critical" else "balanced"
     cfg = PRESETS[preset].model_copy(deep=True)
     cfg.runtime.observe_only = mode == "observe"
     cfg.ai.mode = ai_mode
     cfg.ai.enabled = ai_mode != "off"
+    cfg.ai.model = ai_model.strip() or cfg.ai.model
+    cfg.ai.api_key = ai_api_key.strip() if ai_api_key else None
     cfg.meta.framework = framework
     cfg.meta.instances = instances
     cfg.meta.strictness = strictness

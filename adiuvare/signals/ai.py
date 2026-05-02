@@ -6,6 +6,43 @@ from ..core.models import RequestContext, SignalResult
 from .base import SoftSignal
 
 
+def _generate_url(base_url: str) -> str:
+    clean = base_url.rstrip("/")
+    if clean.endswith("/api/generate"):
+        return clean
+    return f"{clean}/api/generate"
+
+
+def _parse_json_response(raw: str) -> dict:
+    text = (raw or "").strip()
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    if "```" in text:
+        parts = [part.strip() for part in text.split("```") if part.strip()]
+        for part in parts:
+            candidate = part
+            if candidate.lower().startswith("json"):
+                candidate = candidate[4:].strip()
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
 class AISignal(SoftSignal):
     name = "ai"
     weight = 0.05
@@ -13,13 +50,15 @@ class AISignal(SoftSignal):
     def __init__(
         self,
         base_url: str = "http://127.0.0.1:11434",
-        model: str = "llama3.2:3b",
-        timeout: float = 0.8,
+        model: str = "llama3",
+        timeout: float = 5.0,
+        api_key: str | None = None,
         caller=None,
     ) -> None:
-        self._url = f"{base_url.rstrip('/')}/api/generate"
+        self._url = _generate_url(base_url)
         self._model = model
         self._timeout = timeout
+        self._api_key = api_key
         self._caller = caller
 
     async def extract(self, ctx: RequestContext) -> SignalResult:
@@ -58,6 +97,27 @@ class AISignal(SoftSignal):
             },
         )
 
+    async def complete_text(self, prompt: str, *, format_json: bool = False) -> str:
+        if self._caller is not None:
+            raise RuntimeError("ai_completion_unavailable_for_test_caller")
+
+        payload = {"model": self._model, "prompt": prompt, "stream": False}
+        if format_json:
+            payload["format"] = "json"
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            res = await client.post(
+                self._url,
+                headers=self._headers(),
+                json=payload,
+            )
+            res.raise_for_status()
+            return str(res.json().get("response", "")).strip()
+
+    async def complete_json(self, prompt: str) -> dict:
+        raw = await self.complete_text(prompt, format_json=True)
+        return _parse_json_response(raw)
+
     async def _ask(self, ctx: RequestContext, prior_score: float) -> dict:
         if self._caller is not None:
             return await self._caller(ctx, prior_score)
@@ -69,12 +129,9 @@ class AISignal(SoftSignal):
             f"payload: {(ctx.payload or '')[:400]}\n"
             'reply with JSON only: {"verdict":"clean|suspicious|malicious","confidence":0.0,"reason":"..."}'
         )
+        return await self.complete_json(prompt)
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            res = await client.post(
-                self._url,
-                json={"model": self._model, "prompt": prompt, "stream": False},
-            )
-            res.raise_for_status()
-            raw = res.json().get("response", "{}")
-        return json.loads(raw)
+    def _headers(self) -> dict[str, str]:
+        if not self._api_key:
+            return {}
+        return {"Authorization": f"Bearer {self._api_key}"}

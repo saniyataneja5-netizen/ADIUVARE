@@ -93,6 +93,22 @@ def _env_overrides(data: dict) -> dict:
         data.setdefault("ai", {})
         data["ai"]["base_url"] = ollama_url
 
+    if ai_base_url := os.getenv("ADIUVARE_AI_BASE_URL"):
+        data.setdefault("ai", {})
+        data["ai"]["base_url"] = ai_base_url
+
+    if ai_model := os.getenv("ADIUVARE_AI_MODEL"):
+        data.setdefault("ai", {})
+        data["ai"]["model"] = ai_model
+
+    if ai_api_key := os.getenv("ADIUVARE_AI_API_KEY"):
+        data.setdefault("ai", {})
+        data["ai"]["api_key"] = ai_api_key
+
+    if ai_timeout := os.getenv("ADIUVARE_AI_TIMEOUT_SECS"):
+        data.setdefault("ai", {})
+        data["ai"]["timeout_secs"] = float(ai_timeout)
+
     if redis_url := os.getenv("ADIUVARE_REDIS_URL"):
         data.setdefault("runtime", {})
         data["runtime"]["redis_url"] = redis_url

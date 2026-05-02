@@ -12,7 +12,7 @@ from adiuvare.state.audit_log import AuditLog
 
 def test_plain_wizard_writes_yaml(tmp_path, monkeypatch):
     dest = tmp_path / "adiuvare.yaml"
-    answers = iter(["fastapi", "single", "internal", "observe", "no", str(dest)])
+    answers = iter(["fastapi", "single", "internal", "observe", "no", "llama3", "", str(dest)])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
     _plain_terminal_wizard(dest)
     loaded = yaml.safe_load(dest.read_text(encoding="utf-8"))
@@ -21,12 +21,27 @@ def test_plain_wizard_writes_yaml(tmp_path, monkeypatch):
     assert loaded["runtime"]["state_db_path"] == ".adiuvare/state.db"
     assert loaded["ai"]["mode"] == "off"
     assert loaded["ai"]["model"] == "llama3"
+    assert loaded["ai"]["api_key"] is None
     assert loaded["thresholds"]["flag"] == 0.25
     assert loaded["thresholds"]["throttle"] == 0.55
     assert loaded["weights"]["payload"] == 0.40
     assert loaded["meta"]["framework"] == "fastapi"
     assert loaded["meta"]["instances"] == "single"
     assert loaded["meta"]["strictness"] == "internal"
+
+
+def test_plain_wizard_can_store_ai_model_and_key(tmp_path, monkeypatch):
+    dest = tmp_path / "adiuvare.yaml"
+    answers = iter(
+        ["fastapi", "single", "critical", "enforce", "yes", "qwen2.5", "demo-key", str(dest)]
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    _plain_terminal_wizard(dest)
+    loaded = yaml.safe_load(dest.read_text(encoding="utf-8"))
+    assert loaded["ai"]["enabled"] is True
+    assert loaded["ai"]["mode"] == "assist"
+    assert loaded["ai"]["model"] == "qwen2.5"
+    assert loaded["ai"]["api_key"] == "demo-key"
 
 
 def test_run_config_set_patches_nested_value(tmp_path, monkeypatch):

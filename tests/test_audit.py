@@ -145,6 +145,124 @@ def test_guard_stream_command_path_updates_runtime_state(tmp_path):
     )
     assert patched["ai_mode"] == "assist"
     assert patched["observe_only"] is True
+    assert patched["ai_enabled"] is True
+
+
+def test_guard_analysis_commands_return_report_and_answer(tmp_path):
+    guard = Guard()
+    guard._audit = AuditLog(tmp_path / "audit.db")
+    guard._state_DBpath = tmp_path / "state.db"
+    guard._audit.write(
+        AdiuvareEvent(
+            identity="u1",
+            endpoint="/login",
+            score=0.82,
+            verdict="block",
+            breakdown={"payload": 0.5, "behavior": 0.2},
+        )
+    )
+    guard._audit.write(
+        AdiuvareEvent(
+            identity="u2",
+            endpoint="/search",
+            score=0.31,
+            verdict="flag",
+            breakdown={"payload": 0.1, "context": 0.2},
+        )
+    )
+
+    report = asyncio.run(
+        guard.event_stream.command("get_analysis_report", {"window": "7d"})
+    )
+    assert report["source"] == "local"
+    assert report["stats"]["events"] == 2
+    assert report["stats"]["block"] == 1
+    assert report["signal_pressure"][0]["signal"] == "payload"
+
+    answer = asyncio.run(
+        guard.event_stream.command(
+            "ask_ai_analyst",
+            {"question": "what is the top threat right now?", "window": "7d"},
+        )
+    )
+    assert answer["source"] == "local"
+    assert "strongest recent event" in answer["answer"].lower()
+
+
+def test_guard_analysis_report_can_use_ai_summary(tmp_path):
+    guard = Guard()
+    guard._audit = AuditLog(tmp_path / "audit.db")
+    guard._state_DBpath = tmp_path / "state.db"
+    guard._cfg.ai.enabled = True
+    guard._audit.write(
+        AdiuvareEvent(
+            identity="u1",
+            endpoint="/login",
+            score=0.82,
+            verdict="block",
+            breakdown={"payload": 0.5},
+        )
+    )
+
+    async def fake_complete_json(_prompt: str):
+        return {
+            "summary": "AI summary",
+            "findings": ["AI finding"],
+            "recommendations": ["AI recommendation"],
+        }
+
+    async def fake_complete_text(_prompt: str):
+        return "AI analyst answer"
+
+    guard.pipeline._ai_sig.complete_json = fake_complete_json
+    guard.pipeline._ai_sig.complete_text = fake_complete_text
+
+    report = asyncio.run(
+        guard.event_stream.command("get_analysis_report", {"window": "7d"})
+    )
+    assert report["source"] == "ai"
+    assert report["summary"] == "AI summary"
+    assert report["findings"] == ["AI finding"]
+
+    answer = asyncio.run(
+        guard.event_stream.command(
+            "ask_ai_analyst",
+            {"question": "what should we fix first?", "window": "7d"},
+        )
+    )
+    assert answer["source"] == "ai"
+    assert answer["answer"] == "AI analyst answer"
+
+
+def test_guard_analysis_report_can_fallback_to_ai_text_summary(tmp_path):
+    guard = Guard()
+    guard._audit = AuditLog(tmp_path / "audit.db")
+    guard._state_DBpath = tmp_path / "state.db"
+    guard._cfg.ai.enabled = True
+    guard._audit.write(
+        AdiuvareEvent(
+            identity="u1",
+            endpoint="/login",
+            score=0.82,
+            verdict="block",
+            breakdown={"payload": 0.5},
+        )
+    )
+
+    async def fake_complete_json(_prompt: str):
+        return {}
+
+    async def fake_complete_text(_prompt: str):
+        return "AI text summary"
+
+    guard.pipeline._ai_sig.complete_json = fake_complete_json
+    guard.pipeline._ai_sig.complete_text = fake_complete_text
+
+    report = asyncio.run(
+        guard.event_stream.command("get_analysis_report", {"window": "7d"})
+    )
+    assert report["source"] == "ai"
+    assert report["summary"] == "AI text summary"
 
 
 def test_checkpoint_loop_picks_up_new_identity(tmp_path):

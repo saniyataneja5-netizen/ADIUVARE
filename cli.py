@@ -110,6 +110,8 @@ def _plain_terminal_wizard(dest: Path) -> None:
     strictness = _ask("Strictness?", ["public", "internal", "critical"], "internal")
     mode = _ask("Mode?", ["observe", "enforce"], "observe")
     ai_mode = "assist" if _ask("Enable AI?", ["yes", "no"], "no") == "yes" else "off"
+    ai_model = input("AI model (llama3): ").strip() or "llama3"
+    ai_api_key = input("AI API key (leave blank if none): ").strip()
     save_path = Path(_ask("Save path", [str(dest)], str(dest)))
 
     merge_sections(
@@ -120,6 +122,8 @@ def _plain_terminal_wizard(dest: Path) -> None:
             strictness=strictness,
             mode=mode,
             ai_mode=ai_mode,
+            ai_model=ai_model,
+            ai_api_key=ai_api_key or None,
         ),
     )
     print(f"wrote config: {save_path}")

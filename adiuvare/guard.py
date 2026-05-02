@@ -11,6 +11,14 @@ from .core.gate import configure_trackA, run_trackA
 from .core.models import RequestContext
 from .core.pipeline import Pipeline
 from .policies import BUILTIN_POLICIES
+from .runtime_analysis import (
+    analyst_prompt,
+    build_report,
+    local_analyst_answer,
+    report_prompt,
+    report_summary_prompt,
+)
+from .signals.ai import AISignal
 from .signals.behavior import BehaviorSignal
 from .signals.context import ContextSignal
 from .signals.identity import IdentitySignal
@@ -47,7 +55,11 @@ class Guard:
             ContextSignal(),
             IPRepSignal(),
         ]
-        self._pipeline = Pipeline(self._id_store, soft_signals=sigs)
+        self._pipeline = Pipeline(
+            self._id_store,
+            soft_signals=sigs,
+            ai_sig=self._mk_ai_sig(),
+        )
         self._hooks = EventHooks()
         self._stream = self._mkstream()
         if hasattr(self._stream, "set_command_handler"):
@@ -243,7 +255,9 @@ class Guard:
         recent = self._stream.recent() if hasattr(self._stream, "recent") else []
         return {
             "ai_mode": self._cfg_snap.ai_mode,
+            "ai_enabled": self._cfg.ai.enabled,
             "ai_model": self._cfg.ai.model,
+            "ai_timeout_secs": self._cfg.ai.timeout_secs,
             "observe_only": self._cfg_snap.observe_only,
             "backend": self._cfg.runtime.backend,
             "hard_sigs": [sig.name for sig in self._hard_sigs],
@@ -315,6 +329,17 @@ class Guard:
             self._cfg_snap = build_snapshot(self._cfg)
             self._audit.write_patch("patch_config", changes)
             return self.runtimesnapshot()
+
+        if name == "get_analysis_report":
+            window = str(args.get("window", "7d"))
+            limit = int(args.get("limit", 500))
+            return await self.analysis_report(window=window, limit=limit)
+
+        if name == "ask_ai_analyst":
+            question = str(args.get("question", "")).strip()
+            window = str(args.get("window", "7d"))
+            limit = int(args.get("limit", 500))
+            return await self.ask_ai_analyst(question=question, window=window, limit=limit)
 
         raise ValueError(f"unknown stream command: {name}")
 
@@ -393,6 +418,97 @@ class Guard:
             )
         return UnixSocketEventStream()
 
+    def _mk_ai_sig(self) -> AISignal:
+        return AISignal(
+            base_url=self._cfg.ai.base_url,
+            model=self._cfg.ai.model,
+            timeout=self._cfg.ai.timeout_secs,
+            api_key=self._cfg.ai.api_key,
+        )
+
+    async def analysis_report(self, *, window: str = "7d", limit: int = 500) -> dict[str, Any]:
+        days = self._window_days(window)
+        rows = self._audit.window(days=days, limit=limit)
+        runtime = self.runtimesnapshot()
+        runtime["instances"] = self._cfg.meta.instances
+        report = build_report(rows, runtime, window=window)
+        if not self._cfg.ai.enabled:
+            return report
+
+        try:
+            ai_json = await self._pipeline._ai_sig.complete_json(report_prompt(report))
+        except Exception:
+            ai_json = {}
+
+        summary = str(ai_json.get("summary", "")).strip()
+        findings = [str(item) for item in ai_json.get("findings", []) if str(item).strip()]
+        recommendations = [
+            str(item) for item in ai_json.get("recommendations", []) if str(item).strip()
+        ]
+        if not summary:
+            try:
+                summary = (
+                    await self._pipeline._ai_sig.complete_text(report_summary_prompt(report))
+                ).strip()
+            except Exception:
+                summary = ""
+        if summary:
+            report["summary"] = summary
+        if findings:
+            report["findings"] = findings
+        if recommendations:
+            report["recommendations"] = recommendations
+        if summary or findings or recommendations:
+            report["source"] = "ai"
+        return report
+
+    async def ask_ai_analyst(
+        self,
+        *,
+        question: str,
+        window: str = "7d",
+        limit: int = 500,
+    ) -> dict[str, Any]:
+        days = self._window_days(window)
+        rows = self._audit.window(days=days, limit=limit)
+        runtime = self.runtimesnapshot()
+        runtime["instances"] = self._cfg.meta.instances
+        report = build_report(rows, runtime, window=window)
+        if not question:
+            return {
+                "source": "local",
+                "question": "",
+                "answer": report["summary"],
+                "window": window,
+            }
+
+        if not self._cfg.ai.enabled:
+            return {
+                "source": "local",
+                "question": question,
+                "answer": local_analyst_answer(question, report, rows),
+                "window": window,
+            }
+
+        try:
+            answer = await self._pipeline._ai_sig.complete_text(
+                analyst_prompt(question, report, rows)
+            )
+        except Exception:
+            answer = local_analyst_answer(question, report, rows)
+            source = "local"
+        else:
+            source = "ai" if answer.strip() else "local"
+            if source == "local":
+                answer = local_analyst_answer(question, report, rows)
+
+        return {
+            "source": source,
+            "question": question,
+            "answer": answer.strip(),
+            "window": window,
+        }
+
     def _use_flask_store(self) -> None:
         if isinstance(self._id_store, ThreadSafeIdentityStore):
             return
@@ -441,3 +557,12 @@ class Guard:
 
         overrides = {key: val for key, val in saved.items() if key != "policy"}
         return pol.with_overrides(**overrides).__dict__
+
+    def _window_days(self, window: str) -> int:
+        label = window.strip().lower()
+        if label.endswith("d"):
+            label = label[:-1]
+        try:
+            return max(1, int(label))
+        except ValueError:
+            return 7

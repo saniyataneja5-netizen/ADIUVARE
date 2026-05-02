@@ -44,7 +44,7 @@ class AuditLog:
         with sqlite3.connect(self._db_path) as conn:
             rows = conn.execute(
                 """
-                select identity, endpoint, verdict, breakdown_json, detail_json
+                select identity, endpoint, score, verdict, breakdown_json, detail_json, created_at
                 from audit_events
                 order by id desc
                 limit ?
@@ -56,9 +56,11 @@ class AuditLog:
             {
                 "identity": row[0],
                 "endpoint": row[1],
-                "verdict": row[2],
-                "breakdown": json.loads(row[3]),
-                "detail": json.loads(row[4]),
+                "score": row[2],
+                "verdict": row[3],
+                "breakdown": json.loads(row[4]),
+                "detail": json.loads(row[5]),
+                "created_at": row[6],
             }
             for row in rows
         ]
@@ -67,7 +69,7 @@ class AuditLog:
         with sqlite3.connect(self._db_path) as conn:
             rows = conn.execute(
                 """
-                select identity, endpoint, verdict, breakdown_json, detail_json
+                select identity, endpoint, score, verdict, breakdown_json, detail_json, created_at
                 from audit_events
                 where identity = ?
                 order by id desc
@@ -80,9 +82,37 @@ class AuditLog:
             {
                 "identity": row[0],
                 "endpoint": row[1],
-                "verdict": row[2],
-                "breakdown": json.loads(row[3]),
-                "detail": json.loads(row[4]),
+                "score": row[2],
+                "verdict": row[3],
+                "breakdown": json.loads(row[4]),
+                "detail": json.loads(row[5]),
+                "created_at": row[6],
+            }
+            for row in rows
+        ]
+
+    def window(self, days: int = 7, limit: int = 500) -> list[dict]:
+        with sqlite3.connect(self._db_path) as conn:
+            rows = conn.execute(
+                """
+                select identity, endpoint, score, verdict, breakdown_json, detail_json, created_at
+                from audit_events
+                where created_at >= datetime('now', ?)
+                order by id desc
+                limit ?
+                """,
+                (f"-{int(days)} days", int(limit)),
+            ).fetchall()
+
+        return [
+            {
+                "identity": row[0],
+                "endpoint": row[1],
+                "score": row[2],
+                "verdict": row[3],
+                "breakdown": json.loads(row[4]),
+                "detail": json.loads(row[5]),
+                "created_at": row[6],
             }
             for row in rows
         ]

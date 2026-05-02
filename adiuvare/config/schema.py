@@ -34,6 +34,8 @@ class AiConfig(BaseModel):
     mode: str = "off"
     model: str = "llama3"
     base_url: str = "http://127.0.0.1:11434"
+    api_key: str | None = None
+    timeout_secs: float = Field(default=5.0, gt=0.0, le=120.0)
 
 
 class MetaConfig(BaseModel):

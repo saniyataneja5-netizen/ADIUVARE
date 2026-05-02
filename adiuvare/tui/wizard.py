@@ -109,6 +109,12 @@ class SetupWizardApp(App[None]):
                         classes="wiz-pick",
                     )
                 with Horizontal(classes="wiz-row"):
+                    yield Static("AI model", classes="wiz-label")
+                    yield Input(value="llama3", id="wiz-ai-model", classes="wiz-pick")
+                with Horizontal(classes="wiz-row"):
+                    yield Static("AI API key", classes="wiz-label")
+                    yield Input(placeholder="optional", id="wiz-ai-key", classes="wiz-pick")
+                with Horizontal(classes="wiz-row"):
                     yield Static("Save path", classes="wiz-label")
                     yield Input(value=str(self._dest), id="wiz-path", classes="wiz-pick")
                 yield Button("Write starter config", id="wiz-save")
@@ -123,6 +129,8 @@ class SetupWizardApp(App[None]):
         strict = str(self.query_one("#wiz-strict", Select).value or "internal")
         mode = str(self.query_one("#wiz-mode", Select).value or "observe")
         ai_mode = str(self.query_one("#wiz-ai", Select).value or "off")
+        ai_model = self.query_one("#wiz-ai-model", Input).value.strip() or "llama3"
+        ai_api_key = self.query_one("#wiz-ai-key", Input).value.strip()
         self._dest = Path(self.query_one("#wiz-path", Input).value.strip() or str(self._dest))
         payload = starter_config(
             framework=framework,
@@ -130,6 +138,8 @@ class SetupWizardApp(App[None]):
             strictness=strict,
             mode=mode,
             ai_mode=ai_mode,
+            ai_model=ai_model,
+            ai_api_key=ai_api_key or None,
         )
         merge_sections(self._dest, payload)
         self.query_one("#wiz-status", Static).update(f"wrote {self._dest}")
