@@ -4,6 +4,9 @@ Django has a smaller integration than FastAPI or Flask, but it still gives you
 the same core request path: fast gate, scored inspection, route-aware config,
 and direct block or throttle outcomes.
 
+Use the explicit Django attach path here. `Guard.auto(...)` is not the right
+shortcut for Django at the moment.
+
 ## Quick example
 
 ```python

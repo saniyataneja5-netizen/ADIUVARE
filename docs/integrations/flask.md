@@ -29,6 +29,10 @@ def auth_login():
     return {"ok": True}
 ```
 
+Flask can also use `Guard.auto(app, config_path="adiuvare.yaml")`. The explicit
+form is still easier to read when you want the framework choice spelled out in
+the code.
+
 ## What is different in Flask
 
 The host app stays synchronous, but the middleware still:

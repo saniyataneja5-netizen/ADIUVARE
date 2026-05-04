@@ -108,7 +108,7 @@ Guard.auto(
 )
 ```
 
-This creates the `Guard` and attaches it to FastAPI or Flask in one step.
+This creates the `Guard` and attaches it in one step.
 
 ```python
 from fastapi import FastAPI
@@ -122,6 +122,14 @@ guard = Guard.auto(app, config_path="adiuvare.yaml")
 If `config_path` is omitted, it uses the same discovery rules as
 `load_config()`.
 
+`Guard.auto(...)` is the safe short path for:
+
+- FastAPI
+- Flask
+
+For Django, prefer `Guard.from_config(...)` plus `guard.use(..., framework="django")`.
+`Guard.auto(...)` does not currently do real Django detection.
+
 ## use()
 
 ```python
@@ -129,6 +137,9 @@ guard.use(app: Any, framework: str = "fastapi") -> None
 ```
 
 Use this when you want the framework attach step to stay explicit.
+
+You do not need to pass `framework="fastapi"` unless you want the call to stay
+visually explicit. `fastapi` is the default.
 
 Supported values today:
 

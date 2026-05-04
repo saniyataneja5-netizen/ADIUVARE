@@ -48,6 +48,9 @@ guard = Guard.auto(app, config_path="adiuvare.yaml")
 Use `Guard.from_config(...)` plus `guard.use(...)` when you want the setup
 steps to stay explicit in app code.
 
+You can also write `guard.use(app)` directly in FastAPI code. `fastapi` is the
+default framework value there.
+
 ## What the middleware does
 
 For each request, the FastAPI adapter:

@@ -49,6 +49,18 @@ When disconnected, it falls back to:
 - local audit reads
 - cached recent views where possible
 
+One important consequence today:
+
+- state-changing operator actions such as `ban_ip`, `unban_ip`,
+  `monitor_identity`, `unmonitor_identity`, and `unblock_monitor` are
+  authoritative when the TUI is connected to a live runtime
+- a disconnected TUI can still show cached data and control-plane history, but
+  that is not the same thing as mutating live runtime state
+
+This is an area to tighten further. The long-term goal is to make the offline
+story more explicit, either by disabling actions that cannot be applied for
+real or by giving local single-instance mode a true local mutation path.
+
 That means the TUI is strongest when attached to a running runtime.
 
 ## The TUI is still a bounded operator console

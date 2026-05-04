@@ -115,6 +115,9 @@ If you prefer the one-liner:
 guard = Guard.auto(app, config_path="adiuvare.yaml")
 ```
 
+That shortcut is fine for FastAPI. Flask can use it too. Django should stay on
+the explicit `guard.use(..., framework="django")` path for now.
+
 ## 5. Run the app
 
 Use your normal ASGI server:
