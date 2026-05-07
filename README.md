@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/adiuvare-logo.png" alt="Adiuvare logo" width="320" />
+  <img src="docs/assets/adiuvare-logo.png" alt="Adiuvare logo" width="520" />
 </p>
 
 <h1 align="center">Adiuvare</h1>
