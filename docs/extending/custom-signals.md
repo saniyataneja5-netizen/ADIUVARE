@@ -191,6 +191,49 @@ BadHardSignal.check() must stay sync in track a
 ```
 
 > Hard signals run in `trackA`. Keep them synchronous and deterministic.
+ ## Choosing Between HardSignal and SoftSignal
+
+Use a HardSignal when the condition is high-confidence, deterministic, and should stop a request immediately in trackA.
+
+Examples:
+- obvious leaked credentials
+- known malicious paths
+- requests targeting internal-only endpoints
+- exact matches for blocked indicators
+
+Hard signals should remain:
+- synchronous
+- cheap to evaluate
+- deterministic
+- free of expensive network or database calls
+
+Use a SoftSignal when the condition contributes risk but should not automatically block a request.
+
+Examples:
+- suspicious user-agent strings
+- unusual request patterns
+- tenant-specific heuristics
+- context-dependent indicators
+
+Soft signals contribute to the scored trackB path and allow multiple weaker indicators to combine into a final risk decision.
+
+### Testing Guidance
+
+Before opening a PR:
+
+- Verify HardSignal behavior through `guard.check_sync(...)` or the real guard path.
+- Verify SoftSignal scoring through the resulting event score and signal breakdown.
+- Avoid testing signals only in isolation when the real guard path can be exercised.
+
+### Quick Decision Guide
+
+| Question | HardSignal | SoftSignal |
+|----------|------------|------------|
+| Should the request stop immediately? | Yes | No |
+| Is the condition deterministic? | Yes | Usually not required |
+| Runs in trackA? | Yes | No |
+| Contributes risk score? | No | Yes |
+| Should remain fast and synchronous? | Yes | Not required |
 
 ## Registering signals
 
