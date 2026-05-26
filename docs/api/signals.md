@@ -175,47 +175,56 @@ None
 ```
 ## Choosing Between HardSignal and SoftSignal
 
-Use a HardSignal when the condition is high-confidence, deterministic, and should stop a request immediately in trackA.
+When adding custom detection logic to your application, choose the signal type based on the action you want Adiuvare to take.
+
+### Use HardSignal when
+
+Use a HardSignal for high-confidence conditions that should stop a request immediately in `trackA`.
 
 Examples:
-- obvious leaked credentials
-- known malicious paths
+
 - requests targeting internal-only endpoints
 - exact matches for blocked indicators
+- obvious credential or secret exposure
+- deterministic allow/block decisions
 
 Hard signals should remain:
+
 - synchronous
 - cheap to evaluate
 - deterministic
 - free of expensive network or database calls
 
-Use a SoftSignal when the condition contributes risk but should not automatically block a request.
+### Use SoftSignal when
+
+Use a SoftSignal when a condition should contribute risk rather than immediately block a request.
 
 Examples:
+
 - suspicious user-agent strings
 - unusual request patterns
 - tenant-specific heuristics
 - context-dependent indicators
 
-Soft signals contribute to the scored trackB path and allow multiple weaker indicators to combine into a final risk decision.
+Soft signals contribute to the scored `trackB` path, allowing multiple signals to combine into a final risk decision.
 
-### Testing Guidance
+### Testing Your Signal
 
-Before opening a PR:
+Before using a custom signal in production:
 
-- Verify HardSignal behavior through `guard.check_sync(...)` or the real guard path.
+- Verify HardSignal behavior through `guard.check_sync(...)` or the normal guard execution path.
 - Verify SoftSignal scoring through the resulting event score and signal breakdown.
-- Avoid testing signals only in isolation when the real guard path can be exercised.
+- Exercise realistic application inputs rather than testing only isolated signal methods.
 
 ### Quick Decision Guide
 
 | Question | HardSignal | SoftSignal |
 |----------|------------|------------|
 | Should the request stop immediately? | Yes | No |
-| Is the condition deterministic? | Yes | Usually not required |
-| Runs in trackA? | Yes | No |
-| Contributes risk score? | No | Yes |
-| Should remain fast and synchronous? | Yes | Not required |
+| Runs in `trackA`? | Yes | No |
+| Contributes to risk scoring? | No | Yes |
+| Best for high-confidence decisions? | Yes | Usually not |
+| Must remain fast and synchronous? | Yes | Not required |
 
 ## validate_hard_signal()
 
