@@ -173,6 +173,7 @@ False
 True
 None
 ```
+
 ## Choosing Between HardSignal and SoftSignal
 
 When adding custom detection logic to your application, choose the signal type based on the action you want Adiuvare to take.
@@ -207,14 +208,6 @@ Examples:
 - context-dependent indicators
 
 Soft signals contribute to the scored `trackB` path, allowing multiple signals to combine into a final risk decision.
-
-### Testing Your Signal
-
-Before using a custom signal in production:
-
-- Verify HardSignal behavior through `guard.check_sync(...)` or the normal guard execution path.
-- Verify SoftSignal scoring through the resulting event score and signal breakdown.
-- Exercise realistic application inputs rather than testing only isolated signal methods.
 
 ### Quick Decision Guide
 
