@@ -191,6 +191,51 @@ BadHardSignal.check() must stay sync in track a
 ```
 
 > Hard signals run in `trackA`. Keep them synchronous and deterministic.
+> 
+## Choosing Between HardSignal and SoftSignal
+
+When adding custom detection logic to your application, choose the signal type based on the action you want Adiuvare to take.
+
+### Use HardSignal when
+
+Use a HardSignal for high-confidence conditions that should stop a request immediately in `trackA`.
+
+Examples:
+
+- requests targeting internal-only endpoints
+- exact matches for blocked indicators
+- obvious credential or secret exposure
+- deterministic allow/block decisions
+
+Hard signals should remain:
+
+- synchronous
+- cheap to evaluate
+- deterministic
+- free of expensive network or database calls
+
+### Use SoftSignal when
+
+Use a SoftSignal when a condition should contribute risk rather than immediately block a request.
+
+Examples:
+
+- suspicious user-agent strings
+- unusual request patterns
+- tenant-specific heuristics
+- context-dependent indicators
+
+Soft signals contribute to the scored `trackB` path, allowing multiple signals to combine into a final risk decision.
+
+### Quick Decision Guide
+
+| Question | HardSignal | SoftSignal |
+|----------|------------|------------|
+| Should the request stop immediately? | Yes | No |
+| Runs in `trackA`? | Yes | No |
+| Contributes to risk scoring? | No | Yes |
+| Best for high-confidence decisions? | Yes | Usually not |
+| Must remain fast and synchronous? | Yes | Not required |
 
 ## Registering signals
 
